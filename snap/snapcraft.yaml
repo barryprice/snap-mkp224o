@@ -26,6 +26,8 @@ parts:
       git checkout "${latest_release}"
       snapcraftctl set-version "${latest_release}"
     override-build: |
+      echo "SNAPCRAFT_ARCH_TRIPLET=${SNAPCRAFT_ARCH_TRIPLET}"
+
       # amd64 gets its own implementation, the rest get ed25519-donna
       case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
           x86_64)
