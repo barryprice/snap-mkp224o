@@ -46,7 +46,7 @@ parts:
       # n.b. there is no execstack support for arm64 in ubuntu 22.04:
       # execstack: "/build/mkp224o/parts/mkp224o/install/bin/mkp224o"'s architecture is not supported
       case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
-          arm64)
+          aarch64)
               ;;
           *)
               execstack --clear-execstack $SNAPCRAFT_PART_INSTALL/bin/mkp224o
