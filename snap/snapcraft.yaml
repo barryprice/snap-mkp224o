@@ -1,0 +1,46 @@
+name: mkp224o
+adopt-info: mkp224o
+summary: vanity address generator for tor onion v3 (ed25519) hidden services
+description: |
+  This tool generates vanity ed25519 (hidden service version 3, formely known
+  as proposal 224) onion addresses.
+license: CC0-1.0
+
+base: core22
+grade: stable
+confinement: strict
+compression: lzo
+
+apps:
+  mkp224o:
+    command: bin/mkp224o
+    plugs: [home]
+
+parts:
+  mkp224o:
+    plugin: autotools
+    source: https://github.com/cathugger/mkp224o.git
+    override-pull: |
+      snapcraftctl pull
+      latest_release=$(git tag | tail -n 1)
+      git checkout "${latest_release}"
+      snapcraftctl set-version "${latest_release}"
+    override-build: |
+      # amd64 gets its own implementation, the rest get ed25519-donna
+      case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
+          x86_64)
+              IMPLEMENTATION="amd64-51-30k"
+              ;;
+          *)
+              IMPLEMENTATION="donna"
+          esac
+
+      # no "install" target, so override here
+      # also optimise for our arch
+      ./autogen.sh && ./configure --prefix= --enable-${IMPLEMENTATION?} && make \
+        && mkdir $SNAPCRAFT_PART_INSTALL/bin && mv mkp224o $SNAPCRAFT_PART_INSTALL/bin
+    build-packages:
+      - git
+      - libsodium-dev
+    stage-packages:
+      - libsodium23
