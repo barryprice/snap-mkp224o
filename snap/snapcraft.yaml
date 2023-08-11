@@ -39,7 +39,10 @@ parts:
       # also optimise for our arch
       ./autogen.sh && ./configure --prefix= --enable-${IMPLEMENTATION?} && make \
         && mkdir $SNAPCRAFT_PART_INSTALL/bin && mv mkp224o $SNAPCRAFT_PART_INSTALL/bin
+      # clear executable stack https://forum.snapcraft.io/t/snap-and-executable-stacks/1812
+      execstack --clear-execstack $SNAPCRAFT_PART_INSTALL/bin/mkp224o
     build-packages:
+      - execstack
       - git
       - libsodium-dev
     stage-packages:
