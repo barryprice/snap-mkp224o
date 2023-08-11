@@ -39,8 +39,16 @@ parts:
       # also optimise for our arch
       ./autogen.sh && ./configure --prefix= --enable-${IMPLEMENTATION?} && make \
         && mkdir $SNAPCRAFT_PART_INSTALL/bin && mv mkp224o $SNAPCRAFT_PART_INSTALL/bin
+
       # clear executable stack https://forum.snapcraft.io/t/snap-and-executable-stacks/1812
-      execstack --clear-execstack $SNAPCRAFT_PART_INSTALL/bin/mkp224o
+      # n.b. there is no execstack support for arm64 in ubuntu 22.04:
+      # execstack: "/build/mkp224o/parts/mkp224o/install/bin/mkp224o"'s architecture is not supported
+      case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
+          arm64)
+              ;;
+          *)
+              execstack --clear-execstack $SNAPCRAFT_PART_INSTALL/bin/mkp224o
+          esac
     build-packages:
       - execstack
       - git
