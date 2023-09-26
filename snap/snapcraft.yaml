@@ -43,10 +43,12 @@ parts:
         && mkdir $SNAPCRAFT_PART_INSTALL/bin && mv mkp224o $SNAPCRAFT_PART_INSTALL/bin
 
       # clear executable stack https://forum.snapcraft.io/t/snap-and-executable-stacks/1812
-      # n.b. there is no execstack support for arm64 in ubuntu 22.04:
+      # n.b. there is no execstack support for arm64 nor riscv64 in ubuntu 22.04:
       # execstack: "/build/mkp224o/parts/mkp224o/install/bin/mkp224o"'s architecture is not supported
       case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
           aarch64)
+              ;;
+          riscv64)
               ;;
           *)
               execstack --clear-execstack $SNAPCRAFT_PART_INSTALL/bin/mkp224o
