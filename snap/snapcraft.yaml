@@ -6,7 +6,7 @@ description: |
   as proposal 224) onion addresses.
 license: CC0-1.0
 
-base: core22
+base: core26
 grade: stable
 confinement: strict
 compression: lzo
@@ -21,15 +21,13 @@ parts:
     plugin: autotools
     source: https://github.com/cathugger/mkp224o.git
     override-pull: |
-      snapcraftctl pull
+      craftctl default
       latest_release=$(git tag | tail -n 1)
       git checkout "${latest_release}"
-      snapcraftctl set-version "${latest_release}"
+      craftctl set version="${latest_release}"
     override-build: |
-      echo "SNAPCRAFT_ARCH_TRIPLET=${SNAPCRAFT_ARCH_TRIPLET}"
-
       # amd64 gets its own implementation, the rest get ed25519-donna
-      case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
+      case ${CRAFT_ARCH_TRIPLET_BUILD_FOR%%-*} in
           x86_64)
               IMPLEMENTATION="amd64-51-30k"
               ;;
@@ -42,19 +40,7 @@ parts:
       ./autogen.sh && ./configure --prefix= --enable-${IMPLEMENTATION?} && make \
         && mkdir $SNAPCRAFT_PART_INSTALL/bin && mv mkp224o $SNAPCRAFT_PART_INSTALL/bin
 
-      # clear executable stack https://forum.snapcraft.io/t/snap-and-executable-stacks/1812
-      # n.b. there is no execstack support for arm64 nor riscv64 in ubuntu 22.04:
-      # execstack: "/build/mkp224o/parts/mkp224o/install/bin/mkp224o"'s architecture is not supported
-      case ${SNAPCRAFT_ARCH_TRIPLET%%-*} in
-          aarch64)
-              ;;
-          riscv64)
-              ;;
-          *)
-              execstack --clear-execstack $SNAPCRAFT_PART_INSTALL/bin/mkp224o
-          esac
     build-packages:
-      - execstack
       - git
       - libsodium-dev
     stage-packages:
