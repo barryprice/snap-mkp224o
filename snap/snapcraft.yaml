@@ -1,47 +1,161 @@
 name: mkp224o
-adopt-info: mkp224o
+title: mkp224o
 summary: vanity address generator for tor onion v3 (ed25519) hidden services
 description: |
-  This tool generates vanity ed25519 (hidden service version 3, formely known
+  This tool generates vanity ed25519 (hidden service version 3, formerly known
   as proposal 224) onion addresses.
+
+  Keys are written as one directory per discovered address into the current
+  working directory, or into the directory given with -d. Under strict
+  confinement that path must be somewhere the snap can reach: your home
+  directory works out of the box, removable media needs an explicit connection:
+
+  sudo snap connect mkp224o:removable-media
+
+  This build uses integer filtering for speed, which limits filters to 12
+  characters.
 license: CC0-1.0
 
+contact:
+  - https://github.com/barryprice
+issues:
+  - https://github.com/barryprice/snap-mkp224o/issues
+source-code:
+  - https://github.com/cathugger/mkp224o
+website:
+  - https://github.com/cathugger/mkp224o
+
+adopt-info: mkp224o
 base: core26
 grade: stable
 confinement: strict
 compression: lzo
 
+platforms:
+  amd64:
+  arm64:
+  armhf:
+  ppc64el:
+  riscv64:
+  s390x:
+
 apps:
   mkp224o:
     command: bin/mkp224o
-    plugs: [home]
+    plugs: [home, removable-media]
 
 parts:
   mkp224o:
-    plugin: autotools
+    # nil rather than autotools: upstream's autogen.sh is just `exec autoconf -f`
+    # and its GNUmakefile has no install target, so every step is spelled out
+    # below anyway. The autotools plugin would only pull in unused automake,
+    # libtool and autopoint. Package list is upstream's own (README.md).
+    plugin: nil
     source: https://github.com/cathugger/mkp224o.git
-    override-pull: |
-      craftctl default
-      latest_release=$(git tag | tail -n 1)
-      git checkout "${latest_release}"
-      craftctl set version="${latest_release}"
-    override-build: |
-      # amd64 gets its own implementation, the rest get ed25519-donna
-      case ${CRAFT_ARCH_TRIPLET_BUILD_FOR%%-*} in
-          x86_64)
-              IMPLEMENTATION="amd64-51-30k"
-              ;;
-          *)
-              IMPLEMENTATION="donna"
-          esac
-
-      # no "install" target, so override here
-      # also optimise for our arch
-      ./autogen.sh && ./configure --prefix= --enable-${IMPLEMENTATION?} && make \
-        && mkdir $SNAPCRAFT_PART_INSTALL/bin && mv mkp224o $SNAPCRAFT_PART_INSTALL/bin
-
+    source-type: git
     build-packages:
+      - autoconf
+      - binutils # readelf, for the executable-stack check below
+      - gcc
       - git
+      - libc6-dev
       - libsodium-dev
+      - make
     stage-packages:
       - libsodium23
+    override-pull: |
+      craftctl default
+
+      # Pinned upstream release tag. Renovate bumps this line automatically
+      # when cathugger/mkp224o publishes a new release (see renovate.json).
+      # renovate: datasource=github-releases depName=cathugger/mkp224o
+      mkp224o_version="v1.7.0"
+
+      # Shallow clones may omit tags; make sure the pinned one is present.
+      git fetch --tags --force origin
+      git checkout --detach "${mkp224o_version}"
+
+      # configure.ac prefers version.txt over `git describe`, so this pins the
+      # string the binary reports via -V no matter what the .git directory looks
+      # like once craft-parts has copied the tree into the build directory. It is
+      # also the single source of truth for the version gate in override-build.
+      echo "${mkp224o_version}" > version.txt
+
+      craftctl set version="${mkp224o_version#v}"
+    override-build: |
+      # amd64 gets the hand-written SUPERCOP assembly, everything else the
+      # portable ed25519-donna C implementation (upstream OPTIMISATION.txt).
+      case "${CRAFT_ARCH_BUILD_FOR}" in
+          amd64) implementation="amd64-51-30k" ;;
+          *)     implementation="donna" ;;
+      esac
+
+      ./autogen.sh
+
+      # CFLAGS must be passed explicitly: left unset, configure.ac substitutes
+      # "-O3 -march=native -fomit-frame-pointer", baking the build machine's CPU
+      # features into a binary shipped to every user (SIGILL on older hardware).
+      # LDFLAGS: none of upstream's .S files carry a .note.GNU-stack section, so
+      # without this the linker marks the stack executable. The core22 recipe
+      # used `execstack --clear-execstack` here, but execstack was dropped from
+      # the Ubuntu archive after noble and does not exist in 26.04. This is the
+      # replacement, and unlike execstack it works on every architecture.
+      ./configure \
+          --enable-"${implementation}" \
+          --enable-intfilter \
+          CFLAGS="-O3 -fomit-frame-pointer" \
+          LDFLAGS="-Wl,-z,noexecstack"
+
+      if grep -q -- '-march=native' GNUmakefile; then
+          echo "configure injected -march=native; binary would not be portable" >&2
+          exit 1
+      fi
+
+      make -j"${CRAFT_PARALLEL_BUILD_COUNT}" main test
+
+      # Upstream's own vectors, compiled against the implementation selected
+      # above. test_base16/test_base32 abort on failure, test_base64 exits 1,
+      # test_ed25519 always exits 0 and only warns on stderr - so treat any
+      # output as failure too.
+      for t in test_base16 test_base32 test_base64 test_ed25519; do
+          if ! output="$(./"${t}" 2>&1)"; then
+              printf '%s failed:\n%s\n' "${t}" "${output}" >&2
+              exit 1
+          fi
+          if [ -n "${output}" ]; then
+              printf '%s reported problems:\n%s\n' "${t}" "${output}" >&2
+              exit 1
+          fi
+      done
+
+      # No install target upstream, so place the binary by hand.
+      mkdir -p "${CRAFT_PART_INSTALL}/bin"
+      mv mkp224o "${CRAFT_PART_INSTALL}/bin/"
+
+      if readelf -lW "${CRAFT_PART_INSTALL}/bin/mkp224o" | grep -q 'GNU_STACK.*RWE'; then
+          echo "mkp224o was linked with an executable stack" >&2
+          exit 1
+      fi
+
+      expected="mkp224o $(cat version.txt)"
+      reported="$("${CRAFT_PART_INSTALL}/bin/mkp224o" --version)"
+      if [ "${reported}" != "${expected}" ]; then
+          printf 'expected version %s, got %s\n' "${expected}" "${reported}" >&2
+          exit 1
+      fi
+
+      # End-to-end: a one-character filter resolves in well under a second.
+      smoke_dir="$(mktemp -d)"
+      timeout 120 "${CRAFT_PART_INSTALL}/bin/mkp224o" -d "${smoke_dir}" -n 1 -q -t 1 a
+      onion_dir="$(find "${smoke_dir}" -mindepth 1 -maxdepth 1 -type d -name 'a*.onion' | head -n 1)"
+      if [ -z "${onion_dir}" ]; then
+          echo "smoke run produced no *.onion directory" >&2
+          exit 1
+      fi
+      for f in hostname hs_ed25519_public_key hs_ed25519_secret_key; do
+          if [ ! -s "${onion_dir}/${f}" ]; then
+              echo "smoke run did not produce ${f}" >&2
+              exit 1
+          fi
+      done
+      rm -rf "${smoke_dir}"
